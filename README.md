@@ -4,4 +4,4 @@
 # Installation 
 ## Generate server config file:
 ````bash
-npm init -y````
+npm init -y
