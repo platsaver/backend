@@ -3,5 +3,5 @@
 - cors for allowing communication between frontend and backend at different ports
 # Installation 
 ## Generate server config file:
-````bash
+````
 npm init -y
