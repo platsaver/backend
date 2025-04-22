@@ -152,9 +152,8 @@ app.delete('/api/posts/:id', async (req, res) => {
 });
 
 app.post('/api/check-username', async (req, res) => {
-  const { username } = req.body;
-
   try {
+    const { username } = req.body;
     const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
     if (result.rows.length > 0) {
       res.status(200).json({ exists: true });
@@ -184,11 +183,8 @@ app.post('/api/verify-password', async (req, res) => {
     const storedPassword = result.rows[0].password;
     const storedDeviceId = result.rows[0].device_id;
 
-    // Decode base64 password from database
-    const decodedStoredPassword = Buffer.from(storedPassword, 'base64').toString('utf8');
-
-    // Verify password and device ID
-    if (password === decodedStoredPassword && deviceId === storedDeviceId) {
+    // So sánh thẳng mật khẩu và device ID
+    if (password === storedPassword && deviceId === storedDeviceId) {
       return res.status(200).json({ success: true, message: 'Password verified successfully' });
     } else {
       return res.status(401).json({ error: 'Invalid password or device ID' });
