@@ -4,7 +4,8 @@
 # Installation 
 - Generate server config file:
 ````bash
-npm install
+npm init -y 
+
 - Install express+pg+cors:
 ````bash
 npm install express pg cors
