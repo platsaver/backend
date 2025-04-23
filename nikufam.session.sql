@@ -15,8 +15,11 @@ CREATE TABLE users (
     device_id VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- insert into users(username, password, device_id) values
+-- ('quan', 'cGFzc3dvcmQ=', '078270de87df0a4d4f8c9be512fd3267')
 insert into users(username, password, device_id) values
-('quan', 'cGFzc3dvcmQ=', '078270de87df0a4d4f8c9be512fd3267')
+('quan', 'cGFzc3dvcmQ=', 'cbd274706feb1e17425916efa9da1a67')
+update users set device_id='cbd274706feb1e17425916efa9da1a67' where username='quan'
 select * from users
 -- trigger để decode password đã được encode
 -- Trigger để tự động cập nhật updated_at

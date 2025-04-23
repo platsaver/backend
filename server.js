@@ -1,15 +1,46 @@
 const express = require('express');
 const { Pool } = require('pg');
-const cors = require('cors'); // Add cors
+const cors = require('cors');
+const redis = require('redis');
 
 const app = express();
 
-// Database configuration directly in the file
+// Initialize Redis client with reconnection strategy
+const client = redis.createClient({
+  url: 'redis://localhost:6379',
+  socket: {
+    reconnectStrategy: (retries) => {
+      if (retries > 10) {
+        console.error('Max retries reached, giving up on reconnecting');
+        return new Error('Max retries reached');
+      }
+      return Math.min(retries * 100, 3000);
+    },
+  },
+});
+
+// Log Redis events
+client.on('error', (err) => console.error('Redis Client Error:', err));
+client.on('connect', () => console.log('Connected to Redis'));
+client.on('reconnecting', () => console.log('Reconnecting to Redis...'));
+
+// Connect to Redis
+async function connectRedis() {
+  try {
+    await client.connect();
+    console.log('Redis client connected successfully');
+  } catch (err) {
+    console.error('Failed to connect to Redis:', err);
+    process.exit(1);
+  }
+}
+
+// Database configuration
 const pool = new Pool({
-  user: 'postgres',          // Replace with your PostgreSQL username
+  user: 'postgres',
   host: 'localhost',
-  database: 'nikufam',  // Replace with your database name
-  password: '1234',      // Replace with your PostgreSQL password
+  database: 'nikufam',
+  password: '1234',
   port: 5432,
 });
 
@@ -26,12 +57,18 @@ async function testDatabaseConnection() {
     console.log('Đã kết nối thành công đến database!');
   } catch (err) {
     console.error('Lỗi kết nối đến database:', err);
-    process.exit(1); // Exit the process if database connection fails
+    process.exit(1);
   }
 }
 
-// Test database connection when starting the server
-testDatabaseConnection();
+// Start server with DB and Redis connections
+async function startServer() {
+  await testDatabaseConnection();
+  await connectRedis();
+  app.listen(PORT, () => {
+    console.log(`Server đang chạy trên port ${PORT}`);
+  });
+}
 
 // Test database connection endpoint
 app.get('/api/test', async (req, res) => {
@@ -46,7 +83,7 @@ app.get('/api/test', async (req, res) => {
   }
 });
 
-// API 1: Lấy tất cả bài viết
+// Reading all posts
 app.get('/api/posts', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM posts ORDER BY created_at DESC');
@@ -57,16 +94,14 @@ app.get('/api/posts', async (req, res) => {
   }
 });
 
-// API 2: Thêm bài viết mới
+// Adding new posts
 app.post('/api/posts', async (req, res) => {
   const { title, content, status } = req.body;
 
-  // Kiểm tra dữ liệu đầu vào
   if (!title || !content) {
     return res.status(400).json({ error: 'Tiêu đề và nội dung là bắt buộc' });
   }
 
-  // Tạo slug từ tiêu đề
   const slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -83,7 +118,7 @@ app.post('/api/posts', async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Lỗi khi thêm bài viết:', err);
-    if (err.code === '23505') { // Lỗi trùng slug
+    if (err.code === '23505') {
       res.status(400).json({ error: 'Slug đã tồn tại, hãy chọn tiêu đề khác' });
     } else {
       res.status(500).json({ error: 'Không thể thêm bài viết' });
@@ -91,17 +126,15 @@ app.post('/api/posts', async (req, res) => {
   }
 });
 
-// API 3: Chỉnh sửa bài viết
+// Modifying posts
 app.put('/api/posts/:id', async (req, res) => {
   const { id } = req.params;
   const { title, content, status } = req.body;
 
-  // Kiểm tra dữ liệu đầu vào
   if (!title || !content) {
     return res.status(400).json({ error: 'Tiêu đề và nội dung là bắt buộc' });
   }
 
-  // Tạo slug từ tiêu đề
   const slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -124,7 +157,7 @@ app.put('/api/posts/:id', async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Lỗi khi chỉnh sửa bài viết:', err);
-    if (err.code === '23505') { // Lỗi trùng slug
+    if (err.code === '23505') {
       res.status(400).json({ error: 'Slug đã tồn tại, hãy chọn tiêu đề khác' });
     } else {
       res.status(500).json({ error: 'Không thể chỉnh sửa bài viết' });
@@ -132,7 +165,7 @@ app.put('/api/posts/:id', async (req, res) => {
   }
 });
 
-// API 4: Xóa bài viết
+// Deleting posts
 app.delete('/api/posts/:id', async (req, res) => {
   const { id } = req.params;
 
@@ -151,6 +184,7 @@ app.delete('/api/posts/:id', async (req, res) => {
   }
 });
 
+// Check username
 app.post('/api/check-username', async (req, res) => {
   try {
     const { username } = req.body;
@@ -166,11 +200,48 @@ app.post('/api/check-username', async (req, res) => {
   }
 });
 
+// Store access code
+app.post('/store-access-code', async (req, res) => {
+  const { accessCode, username } = req.body;
+  if (!accessCode || !username) {
+    return res.status(400).json({ error: 'Access code and username are required' });
+  }
+  try {
+    // Store access code with username in the key to ensure uniqueness
+    const redisKey = `accessCode:${username}:${accessCode}`;
+    await client.setEx(redisKey, 300, 'valid'); // Expires in 5 minutes
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error storing access code:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Verify access code
+app.post('/verify-access-code', async (req, res) => {
+  const { accessCode, username } = req.body;
+  if (!accessCode || !username) {
+    return res.status(400).json({ error: 'Access code and username are required' });
+  }
+  try {
+    const redisKey = `accessCode:${username}:${accessCode}`;
+    const reply = await client.get(redisKey);
+    if (reply === 'valid') {
+      await client.del(redisKey); // Delete after verification
+      return res.json({ success: true });
+    }
+    res.status(401).json({ error: 'Invalid or expired access code' });
+  } catch (error) {
+    console.error('Error verifying access code:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Verify password
 app.post('/api/verify-password', async (req, res) => {
   const { username, password, deviceId } = req.body;
 
   try {
-    // Query the user from the database
     const result = await pool.query(
       'SELECT password, device_id FROM users WHERE username = $1',
       [username]
@@ -183,7 +254,6 @@ app.post('/api/verify-password', async (req, res) => {
     const storedPassword = result.rows[0].password;
     const storedDeviceId = result.rows[0].device_id;
 
-    // So sánh thẳng mật khẩu và device ID
     if (password === storedPassword && deviceId === storedDeviceId) {
       return res.status(200).json({ success: true, message: 'Password verified successfully' });
     } else {
@@ -197,6 +267,4 @@ app.post('/api/verify-password', async (req, res) => {
 
 // Start the server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server đang chạy trên port ${PORT}`);
-});
+startServer();
