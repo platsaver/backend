@@ -13,7 +13,9 @@
 
 **Installing redis**
 <br>
-``sudo apt-get install redis-server 
+``bash
+
+sudo apt-get install redis-server 
 
 sudo systemctl enable redis
 
